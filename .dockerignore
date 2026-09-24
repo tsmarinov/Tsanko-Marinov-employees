@@ -1,0 +1,11 @@
+.git
+.idea
+.omc
+.DS_Store
+/vendor
+/node_modules
+/storage/logs/*.log
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+.env
