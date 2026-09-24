@@ -2,16 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\EmploymentPeriodRecord;
-use App\Services\Csv\CsvReader;
-use App\Services\DateFormatDetector;
-use App\Services\Employees\EmployeePairFinder;
-use App\Services\Employees\EmploymentPeriodConsolidator;
-use App\Services\Employees\EmploymentPeriodReader;
+use App\Services\Employees\EmployeePairingPipeline;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\LazyCollection;
 
 use function Laravel\Prompts\select;
 
@@ -42,40 +35,18 @@ class ImportEmployeesCommand extends Command
             options: $files->all(),
         );
 
-        $this->components->task('Clearing previously imported data', function () {
-            EmploymentPeriodRecord::truncate();
-        });
-
         $path = $disk->path($chosen);
-        $reader = new EmploymentPeriodReader(new CsvReader(), new DateFormatDetector());
-        $imported = 0;
+        $result = null;
 
-        $this->components->task("Importing {$chosen}", function () use ($reader, $path, &$imported) {
-            LazyCollection::make(fn () => $reader->read($path))
-                ->chunk(500)
-                ->each(function ($chunk) use (&$imported) {
-                    DB::table('employment_periods')->insert(
-                        $chunk->map(fn ($period) => [
-                            'emp_id' => $period->empId,
-                            'project_id' => $period->projectId,
-                            'date_from' => $period->dateFrom->format('Y-m-d'),
-                            'date_to' => $period->dateTo->format('Y-m-d'),
-                        ])->all()
-                    );
-
-                    $imported += $chunk->count();
-                });
+        $this->components->task("Processing {$chosen}", function () use ($path, &$result) {
+            $result = (new EmployeePairingPipeline())->run($path);
         });
 
-        $this->components->info("Imported {$imported} employment period rows from {$chosen}.");
+        $this->components->info(
+            "Imported {$result['imported']} rows, consolidated into {$result['merged']} non-overlapping employee/project periods."
+        );
 
-        $merged = 0;
-        $this->components->task('Consolidating overlapping periods', function () use (&$merged) {
-            $merged = (new EmploymentPeriodConsolidator())->consolidate();
-        });
-        $this->components->info("Consolidated into {$merged} non-overlapping employee/project periods.");
-
-        $winner = (new EmployeePairFinder())->findWinningPair();
+        $winner = $result['winner'];
 
         if ($winner === null) {
             $this->components->warn('No two employees ever worked together on a shared project.');
