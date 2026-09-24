@@ -32,6 +32,12 @@ class EmployeePairFinder
                     AND a.date_from <= b.date_to
                     AND b.date_from <= a.date_to
             ),
+            -- UNION, not sum: this pair's overlap windows are merged across
+            -- ALL shared projects here (partitioned by emp_a/emp_b only, no
+            -- project_id). If they overlapped simultaneously on two projects,
+            -- summing each project's days would double-count those days;
+            -- unioning first means each calendar day counts once no matter
+            -- how many projects it came from.
             bounded AS (
                 SELECT emp_a, emp_b, overlap_from, overlap_to,
                     MAX(overlap_to) OVER (
@@ -73,6 +79,11 @@ class EmployeePairFinder
         $breakdown = DB::select(<<<'SQL'
             SELECT
                 a.project_id AS project_id,
+                -- SUM here is safe (unlike the winner query above): this is
+                -- scoped to ONE project, and this pair's overlap windows
+                -- within a single project can never overlap each other
+                -- (each side's own periods are already non-overlapping), so
+                -- there's nothing to double-count.
                 -- Same portability note as above: julianday() is SQLite-specific.
                 CAST(SUM(julianday(min(a.date_to, b.date_to)) - julianday(max(a.date_from, b.date_from)) + 1) AS INTEGER) AS days
             FROM merged_employment_periods a

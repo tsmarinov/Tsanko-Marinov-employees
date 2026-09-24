@@ -43,3 +43,21 @@ Sample output:
    Days worked.
 2. More than one date format to be supported, extra points will be given if
    all date formats are supported.
+
+## Running the app
+
+Start the container:
+
+```
+docker compose up -d
+```
+
+Drop a CSV file into `storage/app/csv-input/` (a sample file is already
+included there), then run the import command:
+
+```
+docker exec -it sirma-employees php artisan employees:import
+```
+
+It lets you pick which file to import, then prints the winning pair and
+their per-project breakdown.

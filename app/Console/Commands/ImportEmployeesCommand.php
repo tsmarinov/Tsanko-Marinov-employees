@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Models\EmploymentPeriodRecord;
 use App\Services\Csv\CsvReader;
 use App\Services\DateFormatDetector;
+use App\Services\Employees\EmployeePairFinder;
+use App\Services\Employees\EmploymentPeriodConsolidator;
 use App\Services\Employees\EmploymentPeriodReader;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -66,6 +68,31 @@ class ImportEmployeesCommand extends Command
         });
 
         $this->components->info("Imported {$imported} employment period rows from {$chosen}.");
+
+        $merged = 0;
+        $this->components->task('Consolidating overlapping periods', function () use (&$merged) {
+            $merged = (new EmploymentPeriodConsolidator())->consolidate();
+        });
+        $this->components->info("Consolidated into {$merged} non-overlapping employee/project periods.");
+
+        $winner = (new EmployeePairFinder())->findWinningPair();
+
+        if ($winner === null) {
+            $this->components->warn('No two employees ever worked together on a shared project.');
+
+            return self::SUCCESS;
+        }
+
+        $this->newLine();
+        $this->line("<fg=green;options=bold>{$winner['empA']}, {$winner['empB']}, {$winner['totalDays']}</>");
+        $this->newLine();
+
+        $this->table(
+            ['Employee ID #1', 'Employee ID #2', 'Project ID', 'Days worked'],
+            collect($winner['breakdown'])->map(fn (array $row) => [
+                $winner['empA'], $winner['empB'], $row['projectId'], $row['days'],
+            ])->all()
+        );
 
         return self::SUCCESS;
     }
