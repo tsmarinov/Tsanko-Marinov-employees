@@ -17,43 +17,50 @@ class EmploymentPeriodConsolidator
      * [1-20] followed by [5-8] followed by [10-12], correctly collapses
      * into one period instead of being split by the shorter row in between.
      *
+     * The delete + insert run inside a transaction so a concurrent reader of
+     * `merged_employment_periods` never observes the empty gap between the
+     * two statements — it sees either the old data (before commit) or the
+     * new data (after), never neither.
+     *
      * @return int number of merged periods written
      */
     public function consolidate(): int
     {
-        DB::table('merged_employment_periods')->delete();
+        return DB::transaction(function (): int {
+            DB::table('merged_employment_periods')->delete();
 
-        DB::statement(<<<'SQL'
-            INSERT INTO merged_employment_periods (emp_id, project_id, date_from, date_to)
-            WITH bounded AS (
-                SELECT
-                    emp_id,
-                    project_id,
-                    date_from,
-                    date_to,
-                    MAX(date_to) OVER (
-                        PARTITION BY emp_id, project_id
-                        ORDER BY date_from, date_to
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                    ) AS running_max_to
-                FROM employment_periods
-            ),
-            flagged AS (
-                SELECT
-                    emp_id, project_id, date_from, date_to,
-                    SUM(CASE WHEN running_max_to IS NULL OR date_from > running_max_to THEN 1 ELSE 0 END)
-                        OVER (
+            DB::statement(<<<'SQL'
+                INSERT INTO merged_employment_periods (emp_id, project_id, date_from, date_to)
+                WITH bounded AS (
+                    SELECT
+                        emp_id,
+                        project_id,
+                        date_from,
+                        date_to,
+                        MAX(date_to) OVER (
                             PARTITION BY emp_id, project_id
                             ORDER BY date_from, date_to
-                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                        ) AS island
-                FROM bounded
-            )
-            SELECT emp_id, project_id, MIN(date_from), MAX(date_to)
-            FROM flagged
-            GROUP BY emp_id, project_id, island
-        SQL);
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        ) AS running_max_to
+                    FROM employment_periods
+                ),
+                flagged AS (
+                    SELECT
+                        emp_id, project_id, date_from, date_to,
+                        SUM(CASE WHEN running_max_to IS NULL OR date_from > running_max_to THEN 1 ELSE 0 END)
+                            OVER (
+                                PARTITION BY emp_id, project_id
+                                ORDER BY date_from, date_to
+                                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                            ) AS island
+                    FROM bounded
+                )
+                SELECT emp_id, project_id, MIN(date_from), MAX(date_to)
+                FROM flagged
+                GROUP BY emp_id, project_id, island
+            SQL);
 
-        return DB::table('merged_employment_periods')->count();
+            return DB::table('merged_employment_periods')->count();
+        });
     }
 }
