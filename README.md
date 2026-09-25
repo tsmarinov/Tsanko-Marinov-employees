@@ -52,8 +52,10 @@ Start the container:
 docker compose up -d
 ```
 
-Drop a CSV file into `storage/app/csv-input/` (a sample file is already
-included there), then run the import command:
+### Option 1: CLI
+
+Drop a CSV file into `storage/app/csv-input/` (a few sample files are
+already included there), then run the import command:
 
 ```
 docker exec -it sirma-employees php artisan employees:import
@@ -61,3 +63,16 @@ docker exec -it sirma-employees php artisan employees:import
 
 It lets you pick which file to import, then prints the winning pair and
 their per-project breakdown.
+
+### Option 2: Web UI (bonus)
+
+Open [http://localhost:8000](http://localhost:8000) in a browser, pick a CSV
+file from your file system, and upload it. The winning pair and a datagrid
+of their common projects (Employee ID #1, Employee ID #2, Project ID, Days
+worked) are shown once processing finishes.
+
+## Running the tests
+
+```
+docker compose exec app php artisan test
+```
